@@ -74,6 +74,14 @@ public:
   virtual int replan(std::vector<int>* solution_stateIDs_V, ReplanParams params);
   virtual int replan(std::vector<int>* solution_stateIDs_V, ReplanParams params, int* solcost);
 
+  virtual int replan_interleaved_start();
+  
+  // return 0: looked, and no path found, or timeout
+  // return 1: path found, more available
+  // return 2: path found, no more available
+  // return 3: no new path found, couldnt even look more
+  virtual int replan_interleaved(std::vector<int>* solution_stateIDs_V);
+
   virtual int set_goal(int goal_stateID);
   virtual int set_start(int start_stateID);
 
@@ -90,6 +98,10 @@ public:
     params.return_first_solution = bSearchUntilFirstSolution;
     return 1;
   };
+  
+  virtual void set_interleaved(bool in_bInterleaved) {
+    bInterleaved = in_bInterleaved;
+  }
 
 	virtual void set_initialsolution_eps(double initialsolution_eps){
     params.initial_eps = initialsolution_eps;
@@ -135,6 +147,8 @@ protected:
 	LazyARAState* start_state;
   int goal_state_id;
   int start_state_id;
+  bool bInterleaved;
+  int num_interleaves;
 
   //search member variables
 	double eps;
@@ -169,6 +183,9 @@ protected:
   virtual void prepareNextSearchIteration();
 	virtual bool Search(std::vector<int>& pathIds, int & PathCost);
 
+  virtual void SearchInterleavedStart();
+  // same return val as replan_interleaved
+  virtual int SearchInterleaved(std::vector<int>& pathIds, int& PathCost);
 };
 
 #endif

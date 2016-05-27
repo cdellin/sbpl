@@ -37,6 +37,8 @@ LazyARAPlanner::LazyARAPlanner(DiscreteSpaceInformation* environment, bool bSear
 
   goal_state_id = -1;
   start_state_id = -1;
+  
+  bInterleaved = false;
 }
 
 LazyARAPlanner::~LazyARAPlanner(){
@@ -496,6 +498,90 @@ bool LazyARAPlanner::Search(vector<int>& pathIds, int& PathCost){
   return true;
 }
 
+void LazyARAPlanner::SearchInterleavedStart(){
+  CKey key;
+  initializeSearch();
+  num_interleaves = 0;
+}
+
+int LazyARAPlanner::SearchInterleaved(vector<int>& pathIds, int& PathCost){
+  
+  if (eps_satisfied == params.final_eps)
+  {
+    return 3; 
+  }
+  
+  CKey key;
+  TimeStarted = clock();
+  
+  num_interleaves++;
+
+  //the main loop of ARA*
+  while(eps_satisfied > params.final_eps && !outOfTime()){
+
+    if (num_interleaves != 1)
+      prepareNextSearchIteration();
+
+    //run weighted A*
+    clock_t before_time = clock();
+    int before_expands = search_expands;
+    //ImprovePath returns:
+    //1 if the solution is found
+    //0 if the solution does not exist
+    //2 if it ran out of time
+    int ret = ImprovePath();
+    if(ret == 1) //solution found for this iteration
+      eps_satisfied = eps;
+    int delta_expands = search_expands - before_expands;
+    double delta_time = double(clock()-before_time)/CLOCKS_PER_SEC;
+
+    //print the bound, expands, and time for that iteration
+    printf("bound=%f expands=%d cost=%d time=%.3f\n", 
+        eps_satisfied, delta_expands, goal_state->g, delta_time);
+
+    //update stats
+    totalPlanTime += delta_time;
+    totalExpands += delta_expands;
+    PlannerStats tempStat;
+    tempStat.eps = eps_satisfied;
+    tempStat.expands = delta_expands;
+    tempStat.time = delta_time;
+    tempStat.cost = goal_state->g;
+    stats.push_back(tempStat);
+
+    //no solution exists
+    if(ret == 0){
+      printf("Solution does not exist\n");
+      return 0;
+    }
+
+    //if we're just supposed to find the first solution
+    //or if we ran out of time, we're done
+    if(params.return_first_solution || ret == 2)
+      break;
+  }
+
+  if(goal_state->g == INFINITECOST){
+    printf("could not find a solution (ran out of time)\n");
+    return 0;
+  }
+  if(eps_satisfied == INFINITECOST)
+    printf("WARNING: a solution was found but we don't have quality bound for it!\n");
+
+  printf("solution found\n");
+  clock_t before_reconstruct = clock();
+  pathIds = GetSearchPath(PathCost);
+  reconstructTime = double(clock()-before_reconstruct)/CLOCKS_PER_SEC;
+  totalTime = totalPlanTime + reconstructTime;
+
+  if (eps_satisfied == params.final_eps)
+  {
+    return 2; // path found, no more available
+  }
+  else
+    return 1; // path found, more available
+}
+
 void LazyARAPlanner::prepareNextSearchIteration(){
   //decrease epsilon
   eps -= params.dec_eps;
@@ -574,6 +660,40 @@ int LazyARAPlanner::replan(vector<int>* solution_stateIDs_V, ReplanParams p, int
   goal_state_id = -1;
 
   return (int)solnFound;
+}
+
+int LazyARAPlanner::replan_interleaved_start()
+{
+  printf("planner: replan called\n");
+  use_repair_time = params.repair_time >= 0;
+
+  if(goal_state_id < 0){
+    printf("ERROR searching: no goal state set\n");
+    return 0;
+  }
+  if(start_state_id < 0){
+    printf("ERROR searching: no start state set\n");
+    return 0;
+  }
+  
+  SearchInterleavedStart();
+  return 1;
+}
+
+int LazyARAPlanner::replan_interleaved(std::vector<int>* solution_stateIDs_V)
+{
+  //plan
+  vector<int> pathIds;
+  int PathCost = 0;
+  int retval = SearchInterleaved(pathIds, PathCost);
+  printf("total expands=%d planning time=%.3f reconstruct path time=%.3f total time=%.3f solution cost=%d\n", 
+      totalExpands, totalPlanTime, reconstructTime, totalTime, goal_state->g);
+
+  //copy the solution
+  *solution_stateIDs_V = pathIds;
+  //*solcost = PathCost;
+  
+  return retval;
 }
 
 int LazyARAPlanner::set_goal(int id){
